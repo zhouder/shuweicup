@@ -10,7 +10,13 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.cuda.amp import autocast, GradScaler
-from sklearn.metrics import f1_score, confusion_matrix, classification_report
+from sklearn.metrics import (
+    f1_score,
+    precision_score,
+    recall_score,
+    confusion_matrix,
+    classification_report
+)
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
@@ -134,6 +140,8 @@ def train_epoch(model, loader, optimizer, scaler, device, cfg, num_classes, use_
     total_top1 = 0
     total_top3 = 0
     samples = 0
+    preds_all = []
+    labels_all = []
     for x, y in tqdm(loader, desc='Train', leave=False):
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
@@ -152,10 +160,20 @@ def train_epoch(model, loader, optimizer, scaler, device, cfg, num_classes, use_
         total_top1 += (preds[:, 0] == y).sum().item()
         total_top3 += (preds == y.unsqueeze(1)).any(dim=1).sum().item()
         samples += x.size(0)
+        preds_all.append(preds[:, 0].cpu())
+        labels_all.append(y.cpu())
+    preds_cat = torch.cat(preds_all).numpy()
+    labels_cat = torch.cat(labels_all).numpy()
+    precision = precision_score(labels_cat, preds_cat, average='macro', zero_division=0)
+    recall = recall_score(labels_cat, preds_cat, average='macro', zero_division=0)
+    f1 = f1_score(labels_cat, preds_cat, average='macro', zero_division=0)
     return {
         'loss': total_loss / samples,
         'top1': total_top1 / samples,
-        'top3': total_top3 / samples
+        'top3': total_top3 / samples,
+        'precision': precision,
+        'recall': recall,
+        'f1': f1
     }
 
 
@@ -184,7 +202,9 @@ def eval_epoch(model, loader, device, num_classes, use_amp, collect=False):
             labels_all.append(y.cpu())
     preds_cat = torch.cat(preds_all).numpy()
     labels_cat = torch.cat(labels_all).numpy()
-    f1 = f1_score(labels_cat, preds_cat, average='macro')
+    precision = precision_score(labels_cat, preds_cat, average='macro', zero_division=0)
+    recall = recall_score(labels_cat, preds_cat, average='macro', zero_division=0)
+    f1 = f1_score(labels_cat, preds_cat, average='macro', zero_division=0)
     if collect:
         cm = confusion_matrix(labels_cat, preds_cat)
         report = classification_report(labels_cat, preds_cat, output_dict=True)
@@ -195,6 +215,8 @@ def eval_epoch(model, loader, device, num_classes, use_amp, collect=False):
         'loss': total_loss / samples,
         'top1': total_top1 / samples,
         'top3': total_top3 / samples,
+        'precision': precision,
+        'recall': recall,
         'f1': f1,
         'cm': cm,
         'report': report
@@ -218,12 +240,17 @@ def plot_curves(history, save_dir):
     axes[1].set_xlabel('Epoch')
     axes[1].set_ylabel('Accuracy')
     axes[1].legend()
-    axes[2].plot(epochs, history['val_f1'], label='Val F1', color='#8c564b')
-    axes[2].plot(epochs, history['lr'], label='LR', color='#17becf')
+    axes[2].plot(epochs, history['train_f1'], label='Train F1', color='#8c564b')
+    axes[2].plot(epochs, history['val_f1'], label='Val F1', color='#ff9896')
     axes[2].set_title('F1 and LR')
     axes[2].set_xlabel('Epoch')
-    axes[2].set_ylabel('Value')
-    axes[2].legend(loc='upper right')
+    axes[2].set_ylabel('F1')
+    ax2_lr = axes[2].twinx()
+    ax2_lr.plot(epochs, history['lr'], label='LR', color='#17becf', linestyle='--')
+    ax2_lr.set_ylabel('LR')
+    lines, labels = axes[2].get_legend_handles_labels()
+    lines2, labels2 = ax2_lr.get_legend_handles_labels()
+    axes[2].legend(lines + lines2, labels + labels2, loc='upper right')
     plt.tight_layout()
     plt.savefig(os.path.join(save_dir, 'training_curves.png'), dpi=300, bbox_inches='tight')
     plt.close(fig)
@@ -265,7 +292,12 @@ def run(cfg, train_dir, val_dir):
         'train_top1': [],
         'val_top1': [],
         'val_top3': [],
+        'train_f1': [],
         'val_f1': [],
+        'train_precision': [],
+        'val_precision': [],
+        'train_recall': [],
+        'val_recall': [],
         'lr': []
     }
     best_f1 = 0.0
@@ -282,13 +314,26 @@ def run(cfg, train_dir, val_dir):
         history['train_top1'].append(train_stats['top1'])
         history['val_top1'].append(val_stats['top1'])
         history['val_top3'].append(val_stats['top3'])
+        history['train_f1'].append(train_stats['f1'])
         history['val_f1'].append(val_stats['f1'])
+        history['train_precision'].append(train_stats['precision'])
+        history['val_precision'].append(val_stats['precision'])
+        history['train_recall'].append(train_stats['recall'])
+        history['val_recall'].append(val_stats['recall'])
         history['lr'].append(lr)
-        print(f"Train Loss {train_stats['loss']:.4f} | Top-1 {train_stats['top1']:.4f}")
+        print(
+            f"Train Loss {train_stats['loss']:.4f} | "
+            f"Acc {train_stats['top1']:.4f} | "
+            f"Prec {train_stats['precision']:.4f} | "
+            f"Rec {train_stats['recall']:.4f} | "
+            f"F1 {train_stats['f1']:.4f}"
+        )
         print(
             f"Val   Loss {val_stats['loss']:.4f} | "
-            f"Top-1 {val_stats['top1']:.4f} | "
+            f"Acc {val_stats['top1']:.4f} | "
             f"Top-3 {val_stats['top3']:.4f} | "
+            f"Prec {val_stats['precision']:.4f} | "
+            f"Rec {val_stats['recall']:.4f} | "
             f"F1 {val_stats['f1']:.4f}"
         )
         if val_stats['f1'] > best_f1:
