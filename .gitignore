@@ -209,5 +209,7 @@ __marimo__/
 AgriculturalDisease_validationset/
 AgriculturalDisease_trainingset/
 
+yolo11x-cls.pt
+
 checkpoints/
 checkpoints(zhouder)/
