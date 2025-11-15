@@ -285,7 +285,12 @@ def run(cfg, train_dir, val_dir):
         history['val_f1'].append(val_stats['f1'])
         history['lr'].append(lr)
         print(f"Train Loss {train_stats['loss']:.4f} | Top-1 {train_stats['top1']:.4f}")
-        print(f"Val   Loss {val_stats['loss']:.4f} | Top-1 {val_stats['top1']:.4f} | Top-3 {val_stats['top3']:.4f}")
+        print(
+            f"Val   Loss {val_stats['loss']:.4f} | "
+            f"Top-1 {val_stats['top1']:.4f} | "
+            f"Top-3 {val_stats['top3']:.4f} | "
+            f"F1 {val_stats['f1']:.4f}"
+        )
         if val_stats['f1'] > best_f1:
             best_f1 = val_stats['f1']
             ckpt_path = os.path.join(cfg.SAVE_DIR, 'best_model_val_f1.pth')
