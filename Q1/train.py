@@ -331,6 +331,8 @@ def parse_args():
     parser.add_argument('--val_dir', type=str, default=Config.VAL_DIR)
     parser.add_argument('--model', type=str, default=Config.MODEL_TYPE)
     parser.add_argument('--epochs', type=int, default=Config.EPOCHS)
+    parser.add_argument('--batch_size', type=int, default=Config.BATCH_SIZE)
+    parser.add_argument('--lr', type=float, default=Config.LR)
     return parser.parse_args()
 
 
@@ -338,6 +340,8 @@ def main():
     args = parse_args()
     Config.MODEL_TYPE = args.model
     Config.EPOCHS = args.epochs
+    Config.BATCH_SIZE = args.batch_size
+    Config.LR = args.lr
     run(Config, args.train_dir, args.val_dir)
 
 

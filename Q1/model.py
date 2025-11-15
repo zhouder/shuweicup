@@ -40,8 +40,10 @@ class YOLO11Classifier(nn.Module):
         self.num_classes = num_classes
         
     def forward(self, x):
-        """前向传播"""
-        return self.model(x)
+        out = self.model(x)
+        if isinstance(out, (list, tuple)):
+            out = out[0]
+        return out
     
     def predict(self, x):
         """预测方法"""

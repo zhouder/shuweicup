@@ -1,16 +1,15 @@
 import os
 import torch
 import torch.nn.functional as F
-import numpy as np
 from PIL import Image
 import json
-import cv2
 import argparse
 from pathlib import Path
+import torchvision.transforms as transforms
 
 from model import create_model
-from preprocessing import ImagePreprocessor, get_val_transforms
 from utils import load_checkpoint, analyze_class_distribution
+from config import Config
 
 class DiseasePredictor:
     def __init__(self, model_path, model_type='yolo11x-cls', num_classes=None, data_dir=None, device=None):
@@ -28,49 +27,52 @@ class DiseasePredictor:
             print(f"Using default number of classes: {num_classes}")
             
         self.num_classes = num_classes
-        self.model = create_model(model_type='yolo11x-cls', num_classes=num_classes, pretrained=False)
+        self.model = create_model(model_type=model_type, num_classes=num_classes, pretrained=False)
         self.model = self.model.to(self.device)
         
         if os.path.exists(model_path):
             checkpoint = load_checkpoint(model_path)
             if 'model_state_dict' in checkpoint:
-                self.model.load_state_dict(checkpoint['model_state_dict'])
+                state_dict = checkpoint['model_state_dict']
+            elif 'model' in checkpoint:
+                state_dict = checkpoint['model']
             else:
-                self.model.load_state_dict(checkpoint)
+                state_dict = checkpoint
+            self.model.load_state_dict(state_dict)
             print(f"Model loaded from {model_path}")
         else:
             print(f"Warning: Model file {model_path} not found")
         
         self.model.eval()
-        self.preprocessor = ImagePreprocessor()
-        self.transform = get_val_transforms()
+        self.transform = self._build_transform()
         
         self.class_names = self._load_class_names()
+
+    def _build_transform(self):
+        return transforms.Compose([
+            transforms.Resize(Config.IMG_SIZE + 32),
+            transforms.CenterCrop(Config.IMG_SIZE),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
     
     def _load_class_names(self):
         class_names = [f"Class_{i}" for i in range(self.num_classes)]
         
         class_mapping_file = 'class_mapping.json'
         if os.path.exists(class_mapping_file):
-            try:
-                with open(class_mapping_file, 'r') as f:
-                    mapping = json.load(f)
-                    if isinstance(mapping, dict):
-                        class_names = [mapping.get(str(i), f"Class_{i}") for i in range(self.num_classes)]
-                    elif isinstance(mapping, list):
-                        class_names = mapping
-            except Exception as e:
-                print(f"Could not load class mapping: {e}")
+            with open(class_mapping_file, 'r') as f:
+                mapping = json.load(f)
+                if isinstance(mapping, dict):
+                    class_names = [mapping.get(str(i), f"Class_{i}") for i in range(self.num_classes)]
+                elif isinstance(mapping, list):
+                    class_names = mapping
         
         return class_names
     
     def predict_single_image(self, image_path, top_k=5):
         if isinstance(image_path, str):
-            try:
-                image = Image.open(image_path).convert('RGB')
-            except Exception as e:
-                print(f"Error loading image {image_path}: {e}")
-                return None
+            image = Image.open(image_path).convert('RGB')
         else:
             image = image_path
         
@@ -86,7 +88,8 @@ class DiseasePredictor:
             top_probs, top_indices = torch.topk(probabilities, min(top_k, self.num_classes))
             
             results = []
-            for i in range(top_k):
+            valid_k = top_probs.size(1)
+            for i in range(valid_k):
                 class_idx = top_indices[0][i].item()
                 prob = top_probs[0][i].item()
                 class_name = self.class_names[class_idx]
