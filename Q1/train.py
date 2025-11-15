@@ -13,6 +13,7 @@ from torch.cuda.amp import autocast, GradScaler
 from sklearn.metrics import f1_score, confusion_matrix, classification_report
 import matplotlib.pyplot as plt
 import seaborn as sns
+from tqdm import tqdm
 
 from config import Config
 from data_loader import get_data_loaders
@@ -133,7 +134,7 @@ def train_epoch(model, loader, optimizer, scaler, device, cfg, num_classes, use_
     total_top1 = 0
     total_top3 = 0
     samples = 0
-    for x, y in loader:
+    for x, y in tqdm(loader, desc='Train', leave=False):
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
         mixed_x, soft_targets = mix_batch(x, y, cfg, num_classes)
@@ -168,7 +169,7 @@ def eval_epoch(model, loader, device, num_classes, use_amp, collect=False):
     preds_all = []
     labels_all = []
     with torch.no_grad():
-        for x, y in loader:
+        for x, y in tqdm(loader, desc='Val', leave=False):
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
             with autocast(enabled=use_amp):
